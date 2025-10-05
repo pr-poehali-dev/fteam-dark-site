@@ -435,6 +435,42 @@ export default function Index() {
     }
   };
   
+  const handleBuyGame = async (gameId: number, price: number) => {
+    if (!currentUser) return;
+    
+    if (currentUser.ownedGames?.includes(gameId)) {
+      toast.error('Игра уже в вашей библиотеке');
+      return;
+    }
+    
+    if (currentUser.balance < price) {
+      toast.error('Недостаточно средств на балансе');
+      return;
+    }
+    
+    try {
+      const response = await fetch(API_URLS.games, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'buy', user_id: currentUser.id, game_id: gameId })
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        const userResponse = await fetch(`${API_URLS.users}?user_id=${currentUser.id}`);
+        const userData = await userResponse.json();
+        if (userData.user) setCurrentUser(userData.user);
+        toast.success('Игра куплена! Теперь доступна в библиотеке');
+        setCurrentView('library');
+      } else {
+        toast.error(data.error || 'Ошибка покупки');
+      }
+    } catch (error) {
+      toast.error('Ошибка подключения к серверу');
+    }
+  };
+  
   const handleBuyFrame = async (frameId: number, price: number) => {
     if (!currentUser) return;
     
@@ -689,6 +725,15 @@ export default function Index() {
                 <span className="hidden md:inline">Магазин</span>
               </Button>
               <Button
+                variant={currentView === 'library' ? 'default' : 'ghost'}
+                onClick={() => setCurrentView('library')}
+                className="gap-1 md:gap-2 text-xs md:text-sm"
+                size="sm"
+              >
+                <Icon name="Library" size={16} />
+                <span className="hidden md:inline">Библиотека</span>
+              </Button>
+              <Button
                 variant={currentView === 'market' ? 'default' : 'ghost'}
                 onClick={() => setCurrentView('market')}
                 className="gap-1 md:gap-2 text-xs md:text-sm"
@@ -785,7 +830,16 @@ export default function Index() {
                   </CardHeader>
                   <CardContent className="flex justify-between items-center">
                     <span className="text-2xl font-bold text-primary">{game.price} ₽</span>
-                    <Button>Купить</Button>
+                    {currentUser.ownedGames?.includes(game.id) ? (
+                      <Button variant="secondary" disabled>
+                        <Icon name="Check" size={16} className="mr-2" />
+                        В библиотеке
+                      </Button>
+                    ) : (
+                      <Button onClick={() => handleBuyGame(game.id, game.price)}>
+                        Купить
+                      </Button>
+                    )}
                   </CardContent>
                 </Card>
               ))}
@@ -796,7 +850,50 @@ export default function Index() {
         {currentView === 'library' && (
           <div className="space-y-6">
             <h2 className="text-3xl font-bold">Моя библиотека</h2>
-            <p className="text-muted-foreground">У вас пока нет игр</p>
+            {!currentUser.ownedGames || currentUser.ownedGames.length === 0 ? (
+              <Card>
+                <CardContent className="p-12 text-center">
+                  <Icon name="Library" size={64} className="mx-auto mb-4 text-muted-foreground" />
+                  <p className="text-muted-foreground mb-4">У вас пока нет игр в библиотеке</p>
+                  <Button onClick={() => setCurrentView('store')}>Перейти в магазин</Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {currentUser.ownedGames.map(gameId => {
+                  const game = games.find(g => g.id === gameId);
+                  if (!game) return null;
+                  return (
+                    <Card key={game.id} className="overflow-hidden">
+                      <div className="aspect-video bg-muted flex items-center justify-center">
+                        <Icon name="Gamepad2" size={48} className="text-muted-foreground" />
+                      </div>
+                      <CardHeader>
+                        <CardTitle>{game.title}</CardTitle>
+                        <CardDescription>{game.description}</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        {game.file_url ? (
+                          <Button asChild className="w-full">
+                            <a href={game.file_url} download>
+                              <Icon name="Download" size={16} className="mr-2" />
+                              Скачать игру
+                            </a>
+                          </Button>
+                        ) : (
+                          <Button className="w-full" disabled>
+                            Файл недоступен
+                          </Button>
+                        )}
+                        <p className="text-sm text-muted-foreground text-center">
+                          Куплено за {game.price} ₽
+                        </p>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -895,7 +992,16 @@ export default function Index() {
                   </CardHeader>
                   <CardContent className="flex justify-between items-center">
                     <span className="text-2xl font-bold text-primary">{game.price} ₽</span>
-                    <Button>Купить</Button>
+                    {currentUser.ownedGames?.includes(game.id) ? (
+                      <Button variant="secondary" disabled>
+                        <Icon name="Check" size={16} className="mr-2" />
+                        В библиотеке
+                      </Button>
+                    ) : (
+                      <Button onClick={() => handleBuyGame(game.id, game.price)}>
+                        Купить
+                      </Button>
+                    )}
                   </CardContent>
                 </Card>
               ))}
