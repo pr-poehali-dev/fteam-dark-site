@@ -101,6 +101,10 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             elif action == 'reject':
                 cur.execute("UPDATE games SET status = %s WHERE id = %s", ('rejected', game_id))
                 conn.commit()
+            elif action == 'set_featured':
+                is_featured = body_data.get('is_featured', True)
+                cur.execute("UPDATE games SET is_featured = %s WHERE id = %s", (is_featured, game_id))
+                conn.commit()
             
             return {
                 'statusCode': 200,

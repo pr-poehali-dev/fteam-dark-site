@@ -1,0 +1,14 @@
+{
+  "tests": [
+    {
+      "name": "Get all frames",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200,
+      "expectedBody": {
+        "frames": []
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}

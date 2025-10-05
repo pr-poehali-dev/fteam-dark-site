@@ -3,12 +3,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import Icon from '@/components/ui/icon';
 import { toast } from 'sonner';
+import FramedAvatar from '@/components/FramedAvatar';
 
 interface User {
   id: number;
@@ -35,12 +35,34 @@ interface Game {
   file_url?: string;
   screenshots?: string[];
   publisher_username?: string;
+  is_featured?: boolean;
+}
+
+interface Frame {
+  id: number;
+  name: string;
+  price: number;
+  image_url: string;
+  is_active?: boolean;
+}
+
+interface MarketItem {
+  id: number;
+  seller_id: number;
+  item_type: string;
+  item_id: number;
+  price: number;
+  seller_username: string;
+  item_name: string;
+  item_image: string;
 }
 
 const API_URLS = {
   auth: 'https://functions.poehali.dev/4f888d7d-793d-4f97-ba82-b4122ee1d441',
   users: 'https://functions.poehali.dev/c7dee73a-13a1-44fa-9ad2-4c0d06c6e214',
-  games: 'https://functions.poehali.dev/cbedd089-c133-44a2-9397-80b1f0738c13'
+  games: 'https://functions.poehali.dev/cbedd089-c133-44a2-9397-80b1f0738c13',
+  frames: 'https://functions.poehali.dev/d87cf32c-099b-43eb-b9b3-70e6b0ae2040',
+  marketplace: 'https://functions.poehali.dev/28fefeef-323b-4e2f-aa90-2b6a904ef909'
 };
 
 export default function Index() {
@@ -52,11 +74,20 @@ export default function Index() {
   const [games, setGames] = useState<Game[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [pendingGames, setPendingGames] = useState<Game[]>([]);
-  const [currentView, setCurrentView] = useState<'store' | 'library' | 'profile' | 'friends' | 'admin' | 'market' | 'user-profile'>('store');
+  const [currentView, setCurrentView] = useState<'store' | 'library' | 'profile' | 'friends' | 'admin' | 'market' | 'user-profile' | 'inventory' | 'featured'>('store');
   const [showPublishDialog, setShowPublishDialog] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
+  const [showCreateFrame, setShowCreateFrame] = useState(false);
+  const [showSellDialog, setShowSellDialog] = useState(false);
   const [searchUsers, setSearchUsers] = useState('');
   const [viewingUser, setViewingUser] = useState<User | null>(null);
+  const [userFrames, setUserFrames] = useState<Frame[]>([]);
+  const [allFrames, setAllFrames] = useState<Frame[]>([]);
+  const [marketItems, setMarketItems] = useState<MarketItem[]>([]);
+  const [activeFrame, setActiveFrame] = useState<string | null>(null);
+  const [featuredGames, setFeaturedGames] = useState<Game[]>([]);
+  const [newBalance, setNewBalance] = useState('');
+  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   
   const [newGame, setNewGame] = useState({
     title: '',
@@ -86,9 +117,13 @@ export default function Index() {
   useEffect(() => {
     if (currentUser) {
       localStorage.setItem('currentUser', JSON.stringify(currentUser));
+      loadUserFrames();
+      loadMarketItems();
+      loadFeaturedGames();
       if (currentUser.role === 'admin') {
         loadAllUsers();
         loadPendingGames();
+        loadAllFrames();
       }
     }
   }, [currentUser]);
@@ -120,6 +155,49 @@ export default function Index() {
       setPendingGames(data.games || []);
     } catch (error) {
       console.error('Error loading pending games:', error);
+    }
+  };
+  
+  const loadUserFrames = async () => {
+    if (!currentUser) return;
+    try {
+      const response = await fetch(`${API_URLS.frames}?user_id=${currentUser.id}`);
+      const data = await response.json();
+      setUserFrames(data.frames || []);
+      const active = data.frames?.find((f: Frame) => f.is_active);
+      if (active) setActiveFrame(active.image_url);
+    } catch (error) {
+      console.error('Error loading frames:', error);
+    }
+  };
+  
+  const loadAllFrames = async () => {
+    try {
+      const response = await fetch(API_URLS.frames);
+      const data = await response.json();
+      setAllFrames(data.frames || []);
+    } catch (error) {
+      console.error('Error loading frames:', error);
+    }
+  };
+  
+  const loadMarketItems = async () => {
+    try {
+      const response = await fetch(API_URLS.marketplace);
+      const data = await response.json();
+      setMarketItems(data.items || []);
+    } catch (error) {
+      console.error('Error loading market:', error);
+    }
+  };
+  
+  const loadFeaturedGames = async () => {
+    try {
+      const response = await fetch(`${API_URLS.games}?status=approved`);
+      const data = await response.json();
+      setFeaturedGames(data.games?.filter((g: Game) => g.is_featured) || []);
+    } catch (error) {
+      console.error('Error loading featured games:', error);
     }
   };
 
@@ -280,6 +358,105 @@ export default function Index() {
       toast.error('Ошибка при загрузке профиля');
     }
   };
+  
+  const handleCreateFrame = async (name: string, price: string, imageUrl: string) => {
+    try {
+      const response = await fetch(API_URLS.frames, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'create', name, price: parseFloat(price), image_url: imageUrl })
+      });
+      
+      if (response.ok) {
+        loadAllFrames();
+        setShowCreateFrame(false);
+        toast.success('Рамка создана!');
+      }
+    } catch (error) {
+      toast.error('Ошибка создания рамки');
+    }
+  };
+  
+  const handleSetActiveFrame = async (frameId: number) => {
+    if (!currentUser) return;
+    try {
+      const response = await fetch(API_URLS.frames, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set_active', user_id: currentUser.id, frame_id: frameId })
+      });
+      
+      if (response.ok) {
+        loadUserFrames();
+        toast.success('Рамка установлена!');
+      }
+    } catch (error) {
+      toast.error('Ошибка установки рамки');
+    }
+  };
+  
+  const handleBuyMarketItem = async (itemId: number) => {
+    if (!currentUser) return;
+    try {
+      const response = await fetch(API_URLS.marketplace, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'buy', item_id: itemId, buyer_id: currentUser.id })
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        loadMarketItems();
+        const userResponse = await fetch(`${API_URLS.users}?user_id=${currentUser.id}`);
+        const userData = await userResponse.json();
+        if (userData.user) setCurrentUser(userData.user);
+        toast.success(data.message || 'Покупка успешна!');
+      } else {
+        toast.error(data.error || 'Ошибка покупки');
+      }
+    } catch (error) {
+      toast.error('Ошибка подключения к серверу');
+    }
+  };
+  
+  const handleUpdateBalance = async () => {
+    if (!selectedUserId || !newBalance) return;
+    try {
+      const response = await fetch(API_URLS.users, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: selectedUserId, action: 'update_balance', balance: parseFloat(newBalance) })
+      });
+      
+      if (response.ok) {
+        loadAllUsers();
+        setSelectedUserId(null);
+        setNewBalance('');
+        toast.success('Баланс обновлен!');
+      }
+    } catch (error) {
+      toast.error('Ошибка обновления баланса');
+    }
+  };
+  
+  const handleToggleFeatured = async (gameId: number, isFeatured: boolean) => {
+    try {
+      const response = await fetch(API_URLS.games, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ game_id: gameId, action: 'set_featured', is_featured: !isFeatured })
+      });
+      
+      if (response.ok) {
+        loadGames();
+        loadFeaturedGames();
+        toast.success(isFeatured ? 'Игра убрана из популярных' : 'Игра добавлена в популярные!');
+      }
+    } catch (error) {
+      toast.error('Ошибка при обновлении');
+    }
+  };
 
   if (!currentUser) {
     return (
@@ -362,47 +539,52 @@ export default function Index() {
         <div className="container mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-8">
             <h1 className="text-xl font-bold text-primary">FTeam</h1>
-            <nav className="flex gap-4">
+            <nav className="flex gap-2 md:gap-4 flex-wrap">
+              <Button
+                variant={currentView === 'featured' ? 'default' : 'ghost'}
+                onClick={() => setCurrentView('featured')}
+                className="gap-1 md:gap-2 text-xs md:text-sm"
+                size="sm"
+              >
+                <Icon name="Star" size={16} />
+                <span className="hidden md:inline">Популярное</span>
+              </Button>
               <Button
                 variant={currentView === 'store' ? 'default' : 'ghost'}
                 onClick={() => setCurrentView('store')}
-                className="gap-2"
+                className="gap-1 md:gap-2 text-xs md:text-sm"
+                size="sm"
               >
-                <Icon name="Store" size={18} />
-                Магазин
-              </Button>
-              <Button
-                variant={currentView === 'library' ? 'default' : 'ghost'}
-                onClick={() => setCurrentView('library')}
-                className="gap-2"
-              >
-                <Icon name="Library" size={18} />
-                Библиотека
+                <Icon name="Store" size={16} />
+                <span className="hidden md:inline">Магазин</span>
               </Button>
               <Button
                 variant={currentView === 'market' ? 'default' : 'ghost'}
                 onClick={() => setCurrentView('market')}
-                className="gap-2"
+                className="gap-1 md:gap-2 text-xs md:text-sm"
+                size="sm"
               >
-                <Icon name="ShoppingBag" size={18} />
-                Торговая площадка
+                <Icon name="ShoppingBag" size={16} />
+                <span className="hidden md:inline">Площадка</span>
               </Button>
               <Button
-                variant={currentView === 'friends' ? 'default' : 'ghost'}
-                onClick={() => setCurrentView('friends')}
-                className="gap-2"
+                variant={currentView === 'inventory' ? 'default' : 'ghost'}
+                onClick={() => setCurrentView('inventory')}
+                className="gap-1 md:gap-2 text-xs md:text-sm"
+                size="sm"
               >
-                <Icon name="Users" size={18} />
-                Друзья
+                <Icon name="Package" size={16} />
+                <span className="hidden md:inline">Инвентарь</span>
               </Button>
               {currentUser.role === 'admin' && (
                 <Button
                   variant={currentView === 'admin' ? 'default' : 'ghost'}
                   onClick={() => setCurrentView('admin')}
-                  className="gap-2"
+                  className="gap-1 md:gap-2 text-xs md:text-sm"
+                  size="sm"
                 >
-                  <Icon name="Shield" size={18} />
-                  Админ панель
+                  <Icon name="Shield" size={16} />
+                  <span className="hidden md:inline">Админ</span>
                 </Button>
               )}
             </nav>
@@ -425,11 +607,13 @@ export default function Index() {
               onClick={() => setCurrentView('profile')}
               className="gap-2"
             >
-              <Avatar className="h-8 w-8">
-                <AvatarImage src={currentUser.avatar_url} />
-                <AvatarFallback>{currentUser.username[0].toUpperCase()}</AvatarFallback>
-              </Avatar>
-              <span>{currentUser.username}</span>
+              <FramedAvatar
+                avatarUrl={currentUser.avatar_url}
+                frameUrl={activeFrame || undefined}
+                username={currentUser.username}
+                size={32}
+              />
+              <span className="hidden md:inline">{currentUser.username}</span>
               {currentUser.is_verified && (
                 <Badge variant="outline" className="bg-green-500/20 text-green-400 border-green-500">
                   ✓
@@ -557,10 +741,90 @@ export default function Index() {
           </div>
         )}
         
+        {currentView === 'featured' && (
+          <div className="space-y-6">
+            <h2 className="text-3xl font-bold">Популярные игры</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {featuredGames.map((game) => (
+                <Card key={game.id} className="overflow-hidden hover:border-primary transition-colors">
+                  <div className="aspect-video bg-muted flex items-center justify-center">
+                    <Icon name="Star" size={48} className="text-primary" />
+                  </div>
+                  <CardHeader>
+                    <CardTitle>{game.title}</CardTitle>
+                    <CardDescription>{game.description}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex justify-between items-center">
+                    <span className="text-2xl font-bold text-primary">{game.price} ₽</span>
+                    <Button>Купить</Button>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
+        
         {currentView === 'market' && (
           <div className="space-y-6">
             <h2 className="text-3xl font-bold">Торговая площадка</h2>
-            <p className="text-muted-foreground">Здесь вы сможете покупать и продавать игры</p>
+            <Tabs defaultValue="buy">
+              <TabsList>
+                <TabsTrigger value="buy">Купить</TabsTrigger>
+                <TabsTrigger value="sell">Продать</TabsTrigger>
+              </TabsList>
+              <TabsContent value="buy" className="mt-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {marketItems.map((item) => (
+                    <Card key={item.id}>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <Icon name={item.item_type === 'game' ? 'Gamepad2' : 'Frame'} size={20} />
+                          {item.item_name}
+                        </CardTitle>
+                        <CardDescription>Продавец: @{item.seller_username}</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="flex justify-between items-center">
+                          <span className="text-xl font-bold text-primary">{item.price} ₽</span>
+                          <Button size="sm" onClick={() => handleBuyMarketItem(item.id)}>
+                            Купить
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </TabsContent>
+              <TabsContent value="sell" className="mt-6">
+                <p className="text-muted-foreground">Функция продажи скоро будет доступна</p>
+              </TabsContent>
+            </Tabs>
+          </div>
+        )}
+        
+        {currentView === 'inventory' && (
+          <div className="space-y-6">
+            <h2 className="text-3xl font-bold">Инвентарь рамок</h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              {userFrames.map((frame) => (
+                <Card key={frame.id} className={frame.is_active ? 'border-primary' : ''}>
+                  <CardContent className="p-4">
+                    <div className="aspect-square bg-muted rounded flex items-center justify-center mb-2">
+                      <img src={frame.image_url} alt={frame.name} className="w-full h-full object-contain" />
+                    </div>
+                    <p className="text-sm font-medium text-center mb-2">{frame.name}</p>
+                    <Button
+                      size="sm"
+                      className="w-full"
+                      variant={frame.is_active ? 'secondary' : 'default'}
+                      onClick={() => handleSetActiveFrame(frame.id)}
+                    >
+                      {frame.is_active ? 'Активна' : 'Установить'}
+                    </Button>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           </div>
         )}
         
@@ -621,9 +885,10 @@ export default function Index() {
           <div className="space-y-6">
             <h2 className="text-3xl font-bold">Админ панель</h2>
             <Tabs defaultValue="users">
-              <TabsList>
+              <TabsList className="grid grid-cols-4">
                 <TabsTrigger value="users">Пользователи</TabsTrigger>
-                <TabsTrigger value="games">Заявки на игры</TabsTrigger>
+                <TabsTrigger value="games">Заявки</TabsTrigger>
+                <TabsTrigger value="all-games">Все игры</TabsTrigger>
                 <TabsTrigger value="frames">Рамки</TabsTrigger>
               </TabsList>
               <TabsContent value="users" className="mt-6 space-y-4">
@@ -661,7 +926,7 @@ export default function Index() {
                               <p className="text-sm text-muted-foreground">Баланс: {user.balance} ₽</p>
                             </div>
                           </div>
-                          <div className="flex gap-2">
+                          <div className="flex gap-2 flex-wrap">
                             <Button size="sm" variant="outline" onClick={() => viewUserProfile(user.id)}>
                               <Icon name="Eye" size={16} />
                             </Button>
@@ -683,6 +948,12 @@ export default function Index() {
                                 Забанить
                               </Button>
                             )}
+                            <Button size="sm" variant="secondary" onClick={() => {
+                              setSelectedUserId(user.id);
+                              setNewBalance(user.balance.toString());
+                            }}>
+                              Баланс
+                            </Button>
                           </div>
                         </div>
                       </CardContent>
@@ -730,7 +1001,23 @@ export default function Index() {
                           <p className="text-sm text-muted-foreground mb-2">Описание</p>
                           <p>{game.description}</p>
                         </div>
-                        <div className="flex gap-2">
+                        {game.file_url && (
+                          <div>
+                            <p className="text-sm text-muted-foreground mb-1">Файл игры</p>
+                            <a href={game.file_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                              {game.file_url}
+                            </a>
+                          </div>
+                        )}
+                        {game.logo_url && (
+                          <div>
+                            <p className="text-sm text-muted-foreground mb-1">Логотип</p>
+                            <a href={game.logo_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                              {game.logo_url}
+                            </a>
+                          </div>
+                        )}
+                        <div className="flex gap-2 flex-wrap">
                           <Button onClick={() => handleApproveGame(game.id, 'approve')}>
                             Одобрить
                           </Button>
@@ -745,19 +1032,42 @@ export default function Index() {
               </TabsContent>
               <TabsContent value="frames" className="mt-6">
                 <div className="space-y-4">
-                  <Button className="gap-2">
+                  <Button className="gap-2" onClick={() => setShowCreateFrame(true)}>
                     <Icon name="Plus" size={18} />
                     Создать рамку
                   </Button>
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Магазин рамок</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-muted-foreground">Рамки будут отображаться здесь</p>
-                    </CardContent>
-                  </Card>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {allFrames.map((frame) => (
+                      <Card key={frame.id}>
+                        <CardContent className="p-4">
+                          <div className="aspect-square bg-muted rounded flex items-center justify-center mb-2">
+                            <img src={frame.image_url} alt={frame.name} className="w-full h-full object-contain" />
+                          </div>
+                          <p className="text-sm font-medium text-center">{frame.name}</p>
+                          <p className="text-sm text-muted-foreground text-center">{frame.price} ₽</p>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
                 </div>
+              </TabsContent>
+              <TabsContent value="all-games" className="mt-6 space-y-4">
+                {games.map((game) => (
+                  <Card key={game.id}>
+                    <CardHeader>
+                      <div className="flex justify-between items-center">
+                        <CardTitle>{game.title}</CardTitle>
+                        <Button
+                          size="sm"
+                          variant={game.is_featured ? 'secondary' : 'default'}
+                          onClick={() => handleToggleFeatured(game.id, game.is_featured || false)}
+                        >
+                          {game.is_featured ? 'Убрать из популярных' : 'В популярное'}
+                        </Button>
+                      </div>
+                    </CardHeader>
+                  </Card>
+                ))}
               </TabsContent>
             </Tabs>
           </div>
@@ -890,6 +1200,80 @@ export default function Index() {
                 Сохранить
               </Button>
               <Button variant="outline" onClick={() => setShowEditProfile(false)}>
+                Отмена
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      
+      <Dialog open={showCreateFrame} onOpenChange={setShowCreateFrame}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Создать рамку</DialogTitle>
+            <DialogDescription>Добавьте новую рамку в магазин</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Название</label>
+              <Input
+                id="frame-name"
+                placeholder="Золотая рамка"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Цена (₽)</label>
+              <Input
+                id="frame-price"
+                type="number"
+                placeholder="99"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">URL изображения (PNG/GIF)</label>
+              <Input
+                id="frame-image"
+                placeholder="https://..."
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={() => {
+                const name = (document.getElementById('frame-name') as HTMLInputElement).value;
+                const price = (document.getElementById('frame-price') as HTMLInputElement).value;
+                const image = (document.getElementById('frame-image') as HTMLInputElement).value;
+                handleCreateFrame(name, price, image);
+              }} className="flex-1">
+                Создать
+              </Button>
+              <Button variant="outline" onClick={() => setShowCreateFrame(false)}>
+                Отмена
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      
+      <Dialog open={!!selectedUserId} onOpenChange={(open) => !open && setSelectedUserId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Изменить баланс пользователя</DialogTitle>
+            <DialogDescription>Установите новый баланс</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Новый баланс (₽)</label>
+              <Input
+                type="number"
+                value={newBalance}
+                onChange={(e) => setNewBalance(e.target.value)}
+                placeholder="1000"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={handleUpdateBalance} className="flex-1">
+                Сохранить
+              </Button>
+              <Button variant="outline" onClick={() => setSelectedUserId(null)}>
                 Отмена
               </Button>
             </div>

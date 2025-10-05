@@ -1,0 +1,14 @@
+{
+  "tests": [
+    {
+      "name": "Get marketplace items",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200,
+      "expectedBody": {
+        "items": []
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}
