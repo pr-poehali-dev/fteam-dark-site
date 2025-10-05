@@ -22,6 +22,7 @@ interface User {
   is_verified: boolean;
   is_banned: boolean;
   ownedGames?: number[];
+  active_frame_url?: string;
 }
 
 interface Game {
@@ -81,6 +82,7 @@ export default function Index() {
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [showCreateFrame, setShowCreateFrame] = useState(false);
   const [showSellDialog, setShowSellDialog] = useState(false);
+  const [editingFrame, setEditingFrame] = useState<Frame | null>(null);
   const [searchUsers, setSearchUsers] = useState('');
   const [viewingUser, setViewingUser] = useState<User | null>(null);
   const [userFrames, setUserFrames] = useState<Frame[]>([]);
@@ -376,6 +378,42 @@ export default function Index() {
       }
     } catch (error) {
       toast.error('Ошибка создания рамки');
+    }
+  };
+  
+  const handleUpdateFrame = async (frameId: number, name: string, price: string, imageUrl: string) => {
+    try {
+      const response = await fetch(API_URLS.frames, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update', frame_id: frameId, name, price: parseFloat(price), image_url: imageUrl })
+      });
+      
+      if (response.ok) {
+        loadAllFrames();
+        toast.success('Рамка обновлена!');
+      }
+    } catch (error) {
+      toast.error('Ошибка обновления рамки');
+    }
+  };
+  
+  const handleDeleteFrame = async (frameId: number) => {
+    if (!confirm('Удалить рамку?')) return;
+    
+    try {
+      const response = await fetch(API_URLS.frames, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ frame_id: frameId })
+      });
+      
+      if (response.ok) {
+        loadAllFrames();
+        toast.success('Рамка удалена!');
+      }
+    } catch (error) {
+      toast.error('Ошибка удаления рамки');
     }
   };
   
@@ -786,12 +824,12 @@ export default function Index() {
             <Card className="max-w-2xl">
               <CardHeader>
                 <div className="flex items-center gap-4">
-                  <Avatar className="h-20 w-20">
-                    <AvatarImage src={currentUser.avatar_url} />
-                    <AvatarFallback className="text-2xl">
-                      {currentUser.username[0].toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
+                  <FramedAvatar
+                    avatarUrl={currentUser.avatar_url}
+                    frameUrl={activeFrame || undefined}
+                    username={currentUser.username}
+                    size={80}
+                  />
                   <div className="flex-1">
                     <CardTitle className="flex items-center gap-2">
                       {currentUser.display_name}
@@ -1003,12 +1041,12 @@ export default function Index() {
             <Card className="max-w-2xl">
               <CardHeader>
                 <div className="flex items-center gap-4">
-                  <Avatar className="h-20 w-20">
-                    <AvatarImage src={viewingUser.avatar_url} />
-                    <AvatarFallback className="text-2xl">
-                      {viewingUser.username[0].toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
+                  <FramedAvatar
+                    avatarUrl={viewingUser.avatar_url}
+                    frameUrl={viewingUser.active_frame_url}
+                    username={viewingUser.username}
+                    size={80}
+                  />
                   <div>
                     <CardTitle className="flex items-center gap-2">
                       {viewingUser.display_name}
@@ -1071,10 +1109,12 @@ export default function Index() {
                       <CardContent className="p-4">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
-                            <Avatar>
-                              <AvatarImage src={user.avatar_url} />
-                              <AvatarFallback>{user.username[0].toUpperCase()}</AvatarFallback>
-                            </Avatar>
+                            <FramedAvatar
+                              avatarUrl={user.avatar_url}
+                              frameUrl={user.active_frame_url}
+                              username={user.username}
+                              size={40}
+                            />
                             <div>
                               <p className="font-medium flex items-center gap-2">
                                 {user.display_name}
@@ -1209,7 +1249,25 @@ export default function Index() {
                             <img src={frame.image_url} alt={frame.name} className="w-full h-full object-contain" />
                           </div>
                           <p className="text-sm font-medium text-center">{frame.name}</p>
-                          <p className="text-sm text-muted-foreground text-center">{frame.price} ₽</p>
+                          <p className="text-sm text-muted-foreground text-center mb-2">{frame.price} ₽</p>
+                          <div className="flex gap-1">
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              className="flex-1"
+                              onClick={() => setEditingFrame(frame)}
+                            >
+                              <Icon name="Edit" size={14} />
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              variant="destructive" 
+                              className="flex-1"
+                              onClick={() => handleDeleteFrame(frame.id)}
+                            >
+                              <Icon name="Trash2" size={14} />
+                            </Button>
+                          </div>
                         </CardContent>
                       </Card>
                     ))}
@@ -1411,6 +1469,57 @@ export default function Index() {
                 Создать
               </Button>
               <Button variant="outline" onClick={() => setShowCreateFrame(false)}>
+                Отмена
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      
+      <Dialog open={!!editingFrame} onOpenChange={(open) => !open && setEditingFrame(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Редактировать рамку</DialogTitle>
+            <DialogDescription>Измените параметры рамки</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Название рамки</label>
+              <Input
+                id="edit-frame-name"
+                defaultValue={editingFrame?.name}
+                placeholder="Золотая рамка"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Цена (₽)</label>
+              <Input
+                id="edit-frame-price"
+                type="number"
+                defaultValue={editingFrame?.price}
+                placeholder="199"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">URL изображения (PNG/GIF)</label>
+              <Input
+                id="edit-frame-image"
+                defaultValue={editingFrame?.image_url}
+                placeholder="https://..."
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={() => {
+                if (!editingFrame) return;
+                const name = (document.getElementById('edit-frame-name') as HTMLInputElement).value;
+                const price = (document.getElementById('edit-frame-price') as HTMLInputElement).value;
+                const image = (document.getElementById('edit-frame-image') as HTMLInputElement).value;
+                handleUpdateFrame(editingFrame.id, name, price, image);
+                setEditingFrame(null);
+              }} className="flex-1">
+                Сохранить
+              </Button>
+              <Button variant="outline" onClick={() => setEditingFrame(null)}>
                 Отмена
               </Button>
             </div>
