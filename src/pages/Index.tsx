@@ -21,6 +21,7 @@ interface User {
   role: string;
   is_verified: boolean;
   is_banned: boolean;
+  ownedGames?: number[];
 }
 
 interface Game {
@@ -75,7 +76,7 @@ export default function Index() {
   const [games, setGames] = useState<Game[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [pendingGames, setPendingGames] = useState<Game[]>([]);
-  const [currentView, setCurrentView] = useState<'store' | 'library' | 'profile' | 'friends' | 'admin' | 'market' | 'user-profile' | 'inventory' | 'featured'>('store');
+  const [currentView, setCurrentView] = useState<'store' | 'library' | 'profile' | 'friends' | 'admin' | 'market' | 'user-profile' | 'inventory' | 'featured' | 'frames-shop'>('store');
   const [showPublishDialog, setShowPublishDialog] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [showCreateFrame, setShowCreateFrame] = useState(false);
@@ -121,10 +122,10 @@ export default function Index() {
       loadUserFrames();
       loadMarketItems();
       loadFeaturedGames();
+      loadAllFrames();
       if (currentUser.role === 'admin') {
         loadAllUsers();
         loadPendingGames();
-        loadAllFrames();
       }
     }
   }, [currentUser]);
@@ -396,6 +397,88 @@ export default function Index() {
     }
   };
   
+  const handleBuyFrame = async (frameId: number, price: number) => {
+    if (!currentUser) return;
+    
+    if (currentUser.balance < price) {
+      toast.error('Недостаточно средств на балансе');
+      return;
+    }
+    
+    try {
+      const response = await fetch(API_URLS.frames, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'buy', user_id: currentUser.id, frame_id: frameId })
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        loadUserFrames();
+        const userResponse = await fetch(`${API_URLS.users}?user_id=${currentUser.id}`);
+        const userData = await userResponse.json();
+        if (userData.user) setCurrentUser(userData.user);
+        toast.success('Рамка куплена!');
+      } else {
+        toast.error(data.error || 'Ошибка покупки');
+      }
+    } catch (error) {
+      toast.error('Ошибка подключения к серверу');
+    }
+  };
+  
+  const handleSellItem = async (itemType: 'game' | 'frame', itemId: number, price: number) => {
+    if (!currentUser) return;
+    
+    try {
+      const response = await fetch(API_URLS.marketplace, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          action: 'sell', 
+          seller_id: currentUser.id, 
+          item_type: itemType,
+          item_id: itemId,
+          price: price
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        loadMarketItems();
+        setShowSellDialog(false);
+        toast.success('Товар выставлен на продажу!');
+      } else {
+        toast.error(data.error || 'Ошибка выставления товара');
+      }
+    } catch (error) {
+      toast.error('Ошибка подключения к серверу');
+    }
+  };
+  
+  const handleCancelSale = async (itemId: number) => {
+    if (!currentUser) return;
+    
+    try {
+      const response = await fetch(API_URLS.marketplace, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_id: itemId, seller_id: currentUser.id })
+      });
+      
+      if (response.ok) {
+        loadMarketItems();
+        toast.success('Продажа отменена!');
+      } else {
+        toast.error('Ошибка отмены продажи');
+      }
+    } catch (error) {
+      toast.error('Ошибка подключения к серверу');
+    }
+  };
+  
   const handleBuyMarketItem = async (itemId: number) => {
     if (!currentUser) return;
     try {
@@ -432,6 +515,14 @@ export default function Index() {
       
       if (response.ok) {
         loadAllUsers();
+        
+        // Синхронизируем баланс с текущим пользователем если это он
+        if (currentUser && currentUser.id === selectedUserId) {
+          const userResponse = await fetch(`${API_URLS.users}?user_id=${selectedUserId}`);
+          const userData = await userResponse.json();
+          if (userData.user) setCurrentUser(userData.user);
+        }
+        
         setSelectedUserId(null);
         setNewBalance('');
         toast.success('Баланс обновлен!');
@@ -576,6 +667,15 @@ export default function Index() {
               >
                 <Icon name="Package" size={16} />
                 <span className="hidden md:inline">Инвентарь</span>
+              </Button>
+              <Button
+                variant={currentView === 'frames-shop' ? 'default' : 'ghost'}
+                onClick={() => setCurrentView('frames-shop')}
+                className="gap-1 md:gap-2 text-xs md:text-sm"
+                size="sm"
+              >
+                <Icon name="Frame" size={16} />
+                <span className="hidden md:inline">Магазин рамок</span>
               </Button>
               {currentUser.role === 'admin' && (
                 <Button
@@ -797,7 +897,36 @@ export default function Index() {
                 </div>
               </TabsContent>
               <TabsContent value="sell" className="mt-6">
-                <p className="text-muted-foreground">Функция продажи скоро будет доступна</p>
+                <div className="space-y-6">
+                  <h3 className="text-xl font-semibold">Мои товары на продаже</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {marketItems
+                      .filter(item => item.seller_id === currentUser?.id)
+                      .map((item) => (
+                        <Card key={item.id}>
+                          <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                              <Icon name={item.item_type === 'game' ? 'Gamepad2' : 'Frame'} size={20} />
+                              {item.item_name}
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="flex justify-between items-center">
+                              <span className="text-xl font-bold text-primary">{item.price} ₽</span>
+                              <Button size="sm" variant="destructive" onClick={() => handleCancelSale(item.id)}>
+                                Отменить
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                  </div>
+                  
+                  <Button onClick={() => setShowSellDialog(true)} className="w-full">
+                    <Icon name="Plus" size={20} className="mr-2" />
+                    Выставить товар на продажу
+                  </Button>
+                </div>
               </TabsContent>
             </Tabs>
           </div>
@@ -825,6 +954,41 @@ export default function Index() {
                   </CardContent>
                 </Card>
               ))}
+            </div>
+          </div>
+        )}
+        
+        {currentView === 'frames-shop' && (
+          <div className="space-y-6">
+            <h2 className="text-3xl font-bold">Магазин рамок</h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              {allFrames.map((frame) => {
+                const isOwned = userFrames.some(uf => uf.id === frame.id);
+                return (
+                  <Card key={frame.id}>
+                    <CardContent className="p-4">
+                      <div className="aspect-square bg-muted rounded flex items-center justify-center mb-2">
+                        <img src={frame.image_url} alt={frame.name} className="w-full h-full object-contain" />
+                      </div>
+                      <p className="text-sm font-medium text-center mb-2">{frame.name}</p>
+                      <p className="text-center text-primary font-bold mb-2">{frame.price} ₽</p>
+                      {isOwned ? (
+                        <Button size="sm" className="w-full" variant="secondary" disabled>
+                          Куплено
+                        </Button>
+                      ) : (
+                        <Button 
+                          size="sm" 
+                          className="w-full" 
+                          onClick={() => handleBuyFrame(frame.id, frame.price)}
+                        >
+                          Купить
+                        </Button>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           </div>
         )}
@@ -1250,6 +1414,89 @@ export default function Index() {
                 Отмена
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      
+      <Dialog open={showSellDialog} onOpenChange={setShowSellDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Выставить товар на продажу</DialogTitle>
+            <DialogDescription>Выберите что продать из библиотеки или инвентаря</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Tabs defaultValue="games">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="games">Игры</TabsTrigger>
+                <TabsTrigger value="frames">Рамки</TabsTrigger>
+              </TabsList>
+              <TabsContent value="games" className="space-y-4 mt-4">
+                {games.filter(g => currentUser?.ownedGames?.includes(g.id)).map(game => (
+                  <Card key={game.id}>
+                    <CardContent className="pt-6">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                          <Icon name="Gamepad2" size={24} />
+                          <span className="font-medium">{game.title}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            id={`sell-game-${game.id}`}
+                            type="number"
+                            placeholder="Цена"
+                            className="w-24"
+                          />
+                          <Button size="sm" onClick={() => {
+                            const priceInput = document.getElementById(`sell-game-${game.id}`) as HTMLInputElement;
+                            const price = parseFloat(priceInput.value);
+                            if (price > 0) {
+                              handleSellItem('game', game.id, price);
+                            } else {
+                              toast.error('Укажите цену');
+                            }
+                          }}>
+                            Продать
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </TabsContent>
+              <TabsContent value="frames" className="space-y-4 mt-4">
+                {userFrames.filter(f => !f.is_active).map(frame => (
+                  <Card key={frame.id}>
+                    <CardContent className="pt-6">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                          <Icon name="Frame" size={24} />
+                          <span className="font-medium">{frame.name}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            id={`sell-frame-${frame.id}`}
+                            type="number"
+                            placeholder="Цена"
+                            className="w-24"
+                          />
+                          <Button size="sm" onClick={() => {
+                            const priceInput = document.getElementById(`sell-frame-${frame.id}`) as HTMLInputElement;
+                            const price = parseFloat(priceInput.value);
+                            if (price > 0) {
+                              handleSellItem('frame', frame.id, price);
+                            } else {
+                              toast.error('Укажите цену');
+                            }
+                          }}>
+                            Продать
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </TabsContent>
+            </Tabs>
           </div>
         </DialogContent>
       </Dialog>
