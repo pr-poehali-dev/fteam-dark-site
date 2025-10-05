@@ -1,0 +1,17 @@
+{
+  "tests": [
+    {
+      "name": "Get approved games",
+      "method": "GET",
+      "path": "/",
+      "queryParams": {
+        "status": "approved"
+      },
+      "expectedStatus": 200,
+      "expectedBody": {
+        "games": []
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}
